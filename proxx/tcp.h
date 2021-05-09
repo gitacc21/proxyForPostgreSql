@@ -35,9 +35,16 @@ class Tcp
 	static const int clntPort = 5433; // Клиент для прокси - pgAdmin.
 	static const int servPort = 5432; // Сервер для прокси - сервер PostgreSQL.
 	const char* ip; ///@todo Протестировать для других IP, кроме 127.0.0.1.
-	static const int maxConn = 30; // Максимум 30 соединений к прокси.
 
-	class Out* out;
+	Out* out;
+	char* buf;
+	/**
+	* Структуры для мониторинга необходимости записи в файл.
+	*/
+	Out::Need* sNeed;
+
+	const int maxConn, buflen;
+	int i; ///@note Не использовать во вложенных циклах.
 
 	SOCKET sockToServ, sockToClnt, sock;
 	/**
@@ -46,7 +53,7 @@ class Tcp
 	* 1, 3, 5 ... (2 * maxConn - 1) - события на сокетах клиентов;
 	* 2, 4, 6 ... (2 * maxConn) - события на сокетах сервера;
 	*/
-	pollfd sPoll[2 * maxConn + 1];
+	pollfd *sPoll;
 
 	sockaddr_in saToClnt, saToServ; ///@todo Подумать о начальной инициализации (обнуление).
 	
@@ -58,8 +65,8 @@ class Tcp
 public:
 	int init(void) { return init_win(); }
 	int deinit(void) { return deinit_win(); }
-	Out::Ans polling(char* buf, const int buflen);
-	Tcp();
+	Out::Ans polling();
+	Tcp(int maxConn_, int buflen_, char* buf_);
 	~Tcp();
 };
 

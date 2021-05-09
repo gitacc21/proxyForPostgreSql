@@ -4,27 +4,26 @@
 */
 #include "tcp.h"
 
-Tcp::Tcp():
-    out(NULL),
+Tcp::Tcp(int maxConn_, int buflen_, char* buf_):
+    out(NULL), buf(buf_), sNeed(NULL), maxConn(maxConn_), buflen(buflen_),
     sockToServ(INVALID_SOCKET), sockToClnt(INVALID_SOCKET), sock(INVALID_SOCKET),
-    maxInd(0), bytesNo(0)
+    sPoll(NULL), maxInd(0), bytesNo(0)
 {
     /**
     * @todo: Подумать насчет поддержки IPv6.
     */
     const char* dfltIp = "127.0.0.1";
     ip = dfltIp;
-    for (int i = 0; i < maxConn * 2 + 1; i++)
-    {
-        sPoll[i].fd = INVALID_SOCKET; // Дескриптор сокета не установлен, игнорировать.
-        sPoll[i].events = POLLIN; ///@todo Разобрать ситуации POLLRDNORM, POLLRDBAND.
-    }
 }
 
 Tcp::~Tcp()
 {
     delete out;
     out = NULL;
+    delete[] sPoll;
+    sPoll = NULL;
+    delete[] sNeed;
+    sNeed = NULL;
 }
 
 int Tcp::init_win(void)
@@ -32,6 +31,17 @@ int Tcp::init_win(void)
     int res = 0;
     out = new Out(res);
     if (res != 0 || out == NULL) return res - 1000;
+    if ((sPoll = new pollfd[2 * maxConn + 1]) == NULL) return -1000;
+    for (int i = 0; i < maxConn * 2 + 1; i++)
+    {
+        sPoll[i].fd = INVALID_SOCKET; // Дескриптор сокета не установлен, игнорировать.
+        sPoll[i].events = POLLIN; ///@todo Разобрать ситуации POLLRDNORM, POLLRDBAND.
+    }
+    if ((sNeed = new Out::Need[maxConn + 1]) == NULL) return -999;
+    for (int i = 0; i < maxConn + 1; i++)
+    {
+        sNeed[i].write = false;
+    }
 
     WSADATA wsa_data; // Для Win необходимо инициализировать библиотеку.
     if (WSAStartup(0x101, &wsa_data) || wsa_data.wVersion != 0x101) return -1;
@@ -73,10 +83,26 @@ int Tcp::deinit_win(void)
     return 0;
 }
 
-Out::Ans Tcp::polling(char* buf, const int buflen)
+Out::Ans Tcp::polling()
 {
     /**
-    * Бесконечно ожидаем соединения.
+    * @note Используем i (переменную класса) без необходимости
+    * предварительного объявления только если цикл не вложенный.
+    */
+
+    /**
+    * Проверяем, есть ли необходимость записать в файл.
+    */
+    for (i = 1; i < maxInd + 1; i++)
+    {
+        if (sNeed[i].write)
+        {
+            out->write_string(sNeed[i]);
+            sNeed[i].write = false;
+        }
+    }
+    /**
+    * Бесконечно ожидаем событий.
     */
     int ret = poll(sPoll, maxInd * 2 + 1, (-1)); 
     if (ret == -1) return Out::Ans::ERR;
@@ -89,7 +115,7 @@ Out::Ans Tcp::polling(char* buf, const int buflen)
     if (sPoll[0].revents & POLLIN)
     {
         sPoll[0].revents &= ~POLLIN; // Обнулим флаги.
-        for (int i = 1; i < maxConn + 1; i++) //Найдем пустой слот для соединения клиент-сервер.
+        for (i = 1; i < maxConn + 1; i++) //Найдем пустой слот для соединения клиент-сервер.
         {
             /**
             * Найдем слот и создадим 2 соединения: с клиентом и с сервером.
@@ -123,15 +149,19 @@ Out::Ans Tcp::polling(char* buf, const int buflen)
         if (--ret <= 0) return Out::Ans::CONTINUE; // Больше нет событий.
     }
     /**
-    * Событие: есть данные (от сервера или клиентов).
+    * Событие: есть входящие данные (от сервера или клиентов)
+    * или в буфере TCP есть место не менее текущего значения минимального количества 
+    * байт для буфера отправки.
+    * @todo Настроить текущее значение минимального количества 
+    * байт для буфера отправки под нужды прокси (не менее чем buflen).
     */
-    for (int i = 1; i < maxInd * 2 + 1; i++)
+    for (i = 1; i < maxInd * 2 + 1; i++)
     {
         if ((sock = sPoll[i].fd) == INVALID_SOCKET) continue;
         if (sPoll[i].revents & (POLLIN | POLLERR))
         {
             sPoll[i].revents &= ~(POLLIN | POLLERR);
-            if ((bytesNo = recv(sock, buf, buflen, 0)) <= 0)
+            if ((bytesNo = recv(sock, buf + i * buflen, buflen, 0)) <= 0)
             {
                 /**
                 * В данном случае, соединение завершено либо по инициативе собеседника
@@ -152,44 +182,105 @@ Out::Ans Tcp::polling(char* buf, const int buflen)
             }
             else
             {
-                Out::Ans ans;
                 /**
-                * Проверим на четность, от кого пришел запрос:
+                * Проверим на четность, от кого получена информация с TCP:
                 * чет - клиент, нечет - сервер.
                 * Далее определим, на какой сокет необходимо переправить сообщение.
+                * В конце добавим событие: как только буфер TCP готов для отправки, 
+                * отправить сообщение.
+                * @note Подразумевается, что для конкретного подключенного клиента
+                * происходит цикл: клиент->прокси->сервер->прокси->клиент. Если цикл 
+                * нарушается, то необходимо использовать вместо sNeed.bytes другое
+                * место для хранения отправляемого с прокси количества байт.
                 */
                 if (i & 1)
                 {
-                    ans = Out::Ans::CLNT_REQ;
-                    sock = sPoll[i + 1].fd;
+                    sNeed[(i + 1) / 2].bytes = bytesNo;
+                    sPoll[i + 1].events |= POLLOUT; 
                 }
                 else
                 {
-                    ans = Out::Ans::SERV_ANS;
-                    sock = sPoll[i - 1].fd;
+                    sNeed[(i + 1) / 2].bytes = bytesNo;
+                    sPoll[i - 1].events |= POLLOUT;
                 }
-                /**
-                * @todo Сделать проверку наличия места в буфере для передачи в TCP,
-                * возможно, при помощи POLLOUT.
-                */
-                send(sock, buf, bytesNo, 0);
-                /**
-                * @todo Подумать насчет производительности при записи данных
-                * именно здесь.
-                */
-                out->write(buf, bytesNo, ans);
             }
             if (--ret <= 0) // Если больше нет событий.
             {
                 /*
                 * Если крайние слоты освободились, уменьшим maxInd.
                 */
-                for (int i = maxInd * 2 - 1; i > 0; i -= 2)
+                for (i = maxInd * 2 - 1; i > 0; i -= 2)
                     if (sPoll[i].fd == INVALID_SOCKET) maxInd--;
                 return Out::Ans::CONTINUE;
             }
         }
+        if (sPoll[i].revents & POLLOUT)
+        {
+            sPoll[i].revents &= ~POLLOUT;
+            sPoll[i].events &= ~POLLOUT;
+            /**
+            * Проверим на четность, от кого поступила команда на отправку TCP
+            * нечет - от клиента, чет - от сервера.
+            * Затем сделаем отметку о необходимости записи в файл.
+            * @note После записи в файл, соответствующий buf будет изменен: добавляется
+            * терминатор \0 и убирается заголовок и байты, определяющие payload posgesql.
+            * @note Подразумевается, что для конкретного подключенного клиента
+            * происходит цикл: клиент->прокси->сервер->прокси->клиент. Если цикл 
+            * нарушается, то необходимо использовать вместо sNeed.bytes другое
+            * место для хранения отправляемого с прокси количества байт.
+            */
+            if (i & 1)
+            {
+                bytesNo = send(
+                    sock,
+                    buf + (i + 1) * buflen,
+                    sNeed[(i + 1) / 2].bytes,
+                    0);
+            }
+            else
+            {
+                bytesNo = send(
+                    sock,
+                    buf + (i - 1) * buflen,
+                    sNeed[(i + 1) / 2].bytes,
+                    0);
+                sNeed[(i + 1) / 2].write = true;
+                sNeed[(i + 1) / 2].ans = Out::Ans::CLNT_REQ;
+                sNeed[(i + 1) / 2].buf = buf + ((i + 1) / 2) * buflen;
+            }
+            if (bytesNo <= 0)
+            {
+                /**
+                * В данном случае, соединение завершено либо по инициативе собеседника
+                * или оно разорвано. Необходимо закрыть сокеты к клиенту и к серверу.
+                */
+                closesocket(sock);
+                sPoll[i].fd = INVALID_SOCKET;
+                if (i & 1) // Проверим на четность, чтобы определить клиент или сервер.
+                {
+                    closesocket(sPoll[i + 1].fd);
+                    sPoll[i + 1].fd = INVALID_SOCKET;
+                }
+                else
+                {
+                    closesocket(sPoll[i - 1].fd);
+                    sPoll[i - 1].fd = INVALID_SOCKET;
+                }
+            }
+
+            if (--ret <= 0) // Если больше нет событий.
+            {
+                /*
+                * Если крайние слоты освободились, уменьшим maxInd.
+                */
+                for (i = maxInd * 2 - 1; i > 0; i -= 2)
+                    if (sPoll[i].fd == INVALID_SOCKET) maxInd--;
+                return Out::Ans::CONTINUE;
+            }
+
+        }
     }
 }
+
 
 

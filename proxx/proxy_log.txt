@@ -47,6 +47,24 @@ WHERE EXISTS(
 )
 
 9 CLNT_REQ: /*pga4dash*/
+SELECT
+    pid,
+    datname,
+    usename,
+    application_name,
+    client_addr,
+    to_char(backend_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS backend_start,
+    state,
+    wait_event_type || ': ' || wait_event AS wait_event,
+    pg_blocking_pids(pid) AS blocking_pids,
+    query,
+    to_char(state_change, 'YYYY-MM-DD HH24:MI:SS TZ') AS state_change,
+    to_char(query_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS query_start,
+    backend_type
+FROM
+    pg_stat_activity
+ORDER BY pid
+10 CLNT_REQ: /*pga4dash*/
 SELECT 'session_stats' AS chart_name, row_to_json(t) AS chart_data
 FROM (SELECT
    (SELECT count(*) FROM pg_stat_activity) AS "Total",
@@ -80,24 +98,6 @@ FROM (SELECT
    (SELECT sum(blks_hit) FROM pg_stat_database) AS "Hits"
 ) t
 
-10 CLNT_REQ: /*pga4dash*/
-SELECT
-    pid,
-    datname,
-    usename,
-    application_name,
-    client_addr,
-    to_char(backend_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS backend_start,
-    state,
-    wait_event_type || ': ' || wait_event AS wait_event,
-    pg_blocking_pids(pid) AS blocking_pids,
-    query,
-    to_char(state_change, 'YYYY-MM-DD HH24:MI:SS TZ') AS state_change,
-    to_char(query_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS query_start,
-    backend_type
-FROM
-    pg_stat_activity
-ORDER BY pid
 11 CLNT_REQ: /*pga4dash*/
 SELECT 'session_stats' AS chart_name, row_to_json(t) AS chart_data
 FROM (SELECT
@@ -166,7 +166,43 @@ FROM (SELECT
    (SELECT sum(blks_hit) FROM pg_stat_database) AS "Hits"
 ) t
 
-13 CLNT_REQ: /*pga4dash*/
+13 CLNT_REQ: T
+14 CLNT_REQ: T
+15 CLNT_REQ: T
+16 CLNT_REQ: T
+17 CLNT_REQ: T
+18 CLNT_REQ: T
+19 CLNT_REQ: T
+20 CLNT_REQ: T
+21 CLNT_REQ: T
+22 CLNT_REQ: T
+23 CLNT_REQ: T
+24 CLNT_REQ: T
+25 CLNT_REQ: T
+26 CLNT_REQ: T
+27 CLNT_REQ: T
+28 CLNT_REQ: T
+29 CLNT_REQ: T
+30 CLNT_REQ: T
+31 CLNT_REQ: /*pga4dash*/
+SELECT
+    pid,
+    datname,
+    usename,
+    application_name,
+    client_addr,
+    to_char(backend_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS backend_start,
+    state,
+    wait_event_type || ': ' || wait_event AS wait_event,
+    pg_blocking_pids(pid) AS blocking_pids,
+    query,
+    to_char(state_change, 'YYYY-MM-DD HH24:MI:SS TZ') AS state_change,
+    to_char(query_start, 'YYYY-MM-DD HH24:MI:SS TZ') AS query_start,
+    backend_type
+FROM
+    pg_stat_activity
+ORDER BY pid
+32 CLNT_REQ: /*pga4dash*/
 SELECT 'session_stats' AS chart_name, row_to_json(t) AS chart_data
 FROM (SELECT
    (SELECT count(*) FROM pg_stat_activity) AS "Total",
@@ -200,4 +236,38 @@ FROM (SELECT
    (SELECT sum(blks_hit) FROM pg_stat_database) AS "Hits"
 ) t
 
-14 CLNT_REQ: X
+33 CLNT_REQ: /*pga4dash*/
+SELECT 'session_stats' AS chart_name, row_to_json(t) AS chart_data
+FROM (SELECT
+   (SELECT count(*) FROM pg_stat_activity) AS "Total",
+   (SELECT count(*) FROM pg_stat_activity WHERE state = 'active')  AS "Active",
+   (SELECT count(*) FROM pg_stat_activity WHERE state = 'idle')  AS "Idle"
+) t
+UNION ALL
+SELECT 'tps_stats' AS chart_name, row_to_json(t) AS chart_data
+FROM (SELECT
+   (SELECT sum(xact_commit) + sum(xact_rollback) FROM pg_stat_database) AS "Transactions",
+   (SELECT sum(xact_commit) FROM pg_stat_database) AS "Commits",
+   (SELECT sum(xact_rollback) FROM pg_stat_database) AS "Rollbacks"
+) t
+UNION ALL
+SELECT 'ti_stats' AS chart_name, row_to_json(t) AS chart_data
+FROM (SELECT
+   (SELECT sum(tup_inserted) FROM pg_stat_database) AS "Inserts",
+   (SELECT sum(tup_updated) FROM pg_stat_database) AS "Updates",
+   (SELECT sum(tup_deleted) FROM pg_stat_database) AS "Deletes"
+) t
+UNION ALL
+SELECT 'to_stats' AS chart_name, row_to_json(t) AS chart_data
+FROM (SELECT
+   (SELECT sum(tup_fetched) FROM pg_stat_database) AS "Fetched",
+   (SELECT sum(tup_returned) FROM pg_stat_database) AS "Returned"
+) t
+UNION ALL
+SELECT 'bio_stats' AS chart_name, row_to_json(t) AS chart_data
+FROM (SELECT
+   (SELECT sum(blks_read) FROM pg_stat_database) AS "Reads",
+   (SELECT sum(blks_hit) FROM pg_stat_database) AS "Hits"
+) t
+
+34 CLNT_REQ: X

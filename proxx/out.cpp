@@ -37,6 +37,21 @@ unsigned Out::len(const char* p)
     return ret;
 }
 
+void Out::write_string(Need need)
+{
+    switch (need.ans)
+    {
+    case Ans::CLNT_REQ:
+        parse(need.buf, need.bytes);
+        cout << row << " CLNT_REQ: " << need.buf << endl;
+        *fout << row << " CLNT_REQ: " << need.buf << endl;
+        row++;
+        if (isClntStartupMessage) isClntStartupMessage = false;
+        break;
+    default: break;
+    }
+}
+
 void Out::write(char* buf, const int bytesread, const Ans ans)
 {
     switch (ans)

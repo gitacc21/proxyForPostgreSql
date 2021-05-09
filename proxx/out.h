@@ -60,6 +60,14 @@ public:
 	/**
 	* @todo Сделать проверку не превышает ли bytesread размер buf.
 	*/
+	struct Need
+	{
+		bool write;
+		char* buf;
+		int bytes;
+		Ans ans;
+	};
+	void write_string(Need need);
 	void write(char* buf, const int bytesread, const Ans ans);
 	Out(int& res);
 	~Out();
