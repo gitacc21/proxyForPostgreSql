@@ -158,9 +158,9 @@ Out::Ans Tcp::polling()
     for (i = 1; i < maxInd * 2 + 1; i++)
     {
         if ((sock = sPoll[i].fd) == INVALID_SOCKET) continue;
-        if (sPoll[i].revents & (POLLIN | POLLERR))
+        if (sPoll[i].revents & (POLLIN | POLLERR | POLLHUP))
         {
-            sPoll[i].revents &= ~(POLLIN | POLLERR);
+            sPoll[i].revents &= ~(POLLIN | POLLERR | POLLHUP);
             if ((bytesNo = recv(sock, buf + i * buflen, buflen, 0)) <= 0)
             {
                 /**
